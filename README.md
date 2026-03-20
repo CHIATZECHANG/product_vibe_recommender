@@ -1,10 +1,12 @@
 # Fashion Vibe Search 👗🔍
 
-A multimodal fashion recommendation system that analyzes a user's selfie to understand their personal style "vibe" and recommends matching products from a large fashion catalog.
+A multimodal product recommendation system that analyzes a user's selfie to understand their personal style "vibe" and recommends matching products from a large product catalog.
 
 ## Problem
 
-Traditional fashion search requires users to type exact product names or categories. This project solves the problem of **style-based discovery**: given a photo of a person, recommend clothing and accessories that match their aesthetic, lifestyle, and vibe — not just their literal outfit.
+Most of the non-essential goods are not bought; they are discovered. Unlike necessities, which are driven by utility and 'Search,' discretionary purchases are driven by emotion, aesthetic, and lifestyle 'vibe.'
+
+However, current e-commerce is mostly built on 'Search' architecture. It forces users to know exactly what they want before they find it. This 'Search Friction' kills the impulse to buy, leaving millions of perfectly matched, on-sale products buried in the 'Dead Stock' of promotional pages. This project would like to solves the problem of Aesthetic Discovery: turning a user's visual inspiration into a curated storefront of on-sale items they didn't know they needed until they saw them.
 
 ## Dataset
 
@@ -24,7 +26,7 @@ This is a **multimodal retrieval pipeline** combining two models:
 - Product embeddings are a **weighted fusion** (40% image + 60% text) of image and rich-text encodings
 - User selfie embeddings are similarly fused from the photo + Gemini-generated vibe keywords
 
-### 2. Gemini Flash (`gemini-2.0-flash-lite`)
+### 2. Gemini Flash (`gemini-3.1-flash-lite-preview`)
 - Analyzes the user's selfie to extract style keywords
 - Returns wearing style, lifestyle habits, vibe descriptors, and inferred gender
 - These keywords are then encoded with CLIP to form the "query" embedding
@@ -39,7 +41,7 @@ User Selfie
     ├──► CLIP Image Encoder ──────────────────────┐
     │                                              │
     └──► Gemini Flash (Vibe Keywords)              ▼
-              └──► CLIP Text Encoder ──► Weighted Fusion ──► Query Embedding
+              └──► CLIP Text Encoder ──► Weighted embedding ──► Query Embedding
                                                                     │
                                                               Cosine Similarity
                                                                     │
@@ -50,25 +52,13 @@ Product Catalog ──► CLIP (Image + Text Fusion) ──► DB Embeddings   �
 
 ## Training
 
-No model training is required. This system uses:
+This system uses pretrained model:
 - **Pretrained CLIP** for zero-shot multimodal embedding
+- **Feature-Level Fine-Tuning** "fine-tuned" the system by engineering a Weighted Multimodal Fusion layer
 - **Gemini API** for vision-language understanding
 - **Semantic search** at inference time
+- **Promotional Re-ranking Logic**
 
-The "training" phase is the **offline embedding step**: encoding all ~40,000 product images and text descriptions into the vector database.
-
-## Results
-
-| Test Case | Style Detected | Relevance |
-|-----------|----------------|-----------|
-| French woman (elegant, Parisian) | Minimalist, neutral tones | ✅ Dresses, blouses, accessories |
-| Fashion man (formal wear) | Business casual, smart | ✅ Dress shirts, formal trousers |
-| Hiker man (outdoor gear) | Sporty, utilitarian | ✅ Track pants, sports tshirts |
-| Hip-hop woman (streetwear) | Urban, bold colors | ✅ Casual tops, sneakers |
-
-The system correctly clusters style-matching products across different aesthetic categories without any labeled training data.
-
-## Demo
 
 ### Prerequisites
 ```bash
