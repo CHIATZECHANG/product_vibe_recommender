@@ -1,0 +1,22 @@
+# Core ML
+torch>=2.0.0
+sentence-transformers>=2.7.0
+numpy>=1.24.0
+
+# Data
+pandas>=2.0.0
+Pillow>=10.0.0
+kagglehub>=0.2.0
+
+# Google AI
+google-genai>=1.0.0
+
+# Demo UI
+gradio>=4.0.0
+
+# Visualization / Evaluation
+matplotlib>=3.7.0
+
+# Utilities
+pyyaml>=6.0
+tqdm>=4.65.0
