@@ -158,3 +158,92 @@ def encode_user_selfie(
     # Step 3: Fuse
     query_emb = get_combined_embeddings(text_emb, img_emb, text_weight=text_weight)
     return query_emb
+
+
+# ─── Promotional Re-ranking ───────────────────────────────────────────────────
+
+def promotional_rerank(
+    recommendations: list[dict],
+    promo_weight: float = 0.15,
+    min_discount_to_boost: int = 10,
+) -> list[dict]:
+    """
+    Re-ranks a list of recommendations by blending cosine similarity scores
+    with a promotional discount signal.
+
+    The final score is a weighted combination:
+
+        final_score = (1 - promo_weight) * similarity + promo_weight * promo_signal
+
+    where:
+        promo_signal = on_sale_pct / 100   (0.0 for non-sale items, up to 0.70+)
+
+    This gives on-sale products a gentle boost without completely overriding
+    semantic relevance — a product with 50% off gets a meaningful lift, but a
+    completely irrelevant heavily-discounted item won't outrank a highly relevant
+    full-price one.
+
+    Args:
+        recommendations:       Ordered list of dicts from get_recommendations().
+                               Each dict must contain 'score' and 'on_sale_pct'.
+        promo_weight:          0.0–1.0. How much promotional signal influences
+                               the final ranking. Default 0.15 (subtle boost).
+        min_discount_to_boost: Only apply promo signal if on_sale_pct >= this
+                               threshold. Filters out token 1-5% "discounts".
+
+    Returns:
+        Re-ranked list of dicts, each augmented with:
+          - 'similarity_score'  : original cosine similarity
+          - 'promo_signal'      : normalized discount signal (0.0–1.0)
+          - 'final_score'       : blended ranking score
+          - 'rank_change'       : positions gained (+) or lost (-) vs. original
+    """
+    if not recommendations:
+        return recommendations
+
+    # Attach original rank and compute promo signal for each item
+    for original_rank, rec in enumerate(recommendations):
+        rec["original_rank"] = original_rank
+        rec["similarity_score"] = rec["score"]
+
+        discount = rec.get("on_sale_pct", 0)
+        if discount >= min_discount_to_boost:
+            rec["promo_signal"] = discount / 100.0
+        else:
+            rec["promo_signal"] = 0.0
+
+        rec["final_score"] = (
+            (1 - promo_weight) * rec["similarity_score"]
+            + promo_weight * rec["promo_signal"]
+        )
+
+    # Sort by final_score descending
+    reranked = sorted(recommendations, key=lambda r: r["final_score"], reverse=True)
+
+    # Annotate rank changes
+    for new_rank, rec in enumerate(reranked):
+        rec["rank_change"] = rec["original_rank"] - new_rank  # positive = moved up
+
+    return reranked
+
+
+def format_rerank_summary(recommendations: list[dict]) -> str:
+    """
+    Returns a human-readable summary table of the re-ranked results,
+    showing original rank, new rank, scores, and sale status.
+    """
+    lines = [
+        f"{'#':>3}  {'Product':<35}  {'Sim':>6}  {'Promo':>6}  {'Final':>6}  {'Sale':>8}  {'Δ':>4}",
+        "─" * 78,
+    ]
+    for i, rec in enumerate(recommendations, 1):
+        sale_tag = f"{rec.get('on_sale_pct', 0)}% OFF" if rec.get("on_sale_pct", 0) > 0 else "—"
+        delta = rec.get("rank_change", 0)
+        delta_str = f"+{delta}" if delta > 0 else str(delta)
+        name = rec.get("name", "")[:34]
+        lines.append(
+            f"{i:>3}. {name:<35}  {rec['similarity_score']:>6.4f}  "
+            f"{rec['promo_signal']:>6.4f}  {rec['final_score']:>6.4f}  "
+            f"{sale_tag:>8}  {delta_str:>4}"
+        )
+    return "\n".join(lines)
