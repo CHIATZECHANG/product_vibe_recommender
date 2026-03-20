@@ -70,7 +70,7 @@ def build_index(
 
     # Save only needed columns to keep file small
     meta_df = df[["id", "productDisplayName", "usage", "articleType",
-                   "baseColour", "gender", "image_path"]].copy()
+                   "baseColour", "gender", "on_sale", "on_sale_pct", "image_path"]].copy()
     meta_df.to_pickle(meta_path)
 
     config = {

@@ -18,7 +18,7 @@ import matplotlib.gridspec as gridspec
 from PIL import Image
 from sentence_transformers import util
 
-from model import load_clip_model, encode_user_selfie
+from model import load_clip_model, encode_user_selfie, promotional_rerank, format_rerank_summary
 from train import load_index, build_index
 from dataset import download_dataset
 
@@ -28,13 +28,28 @@ def get_recommendations(
     product_embeddings: np.ndarray,
     metadata,
     top_k: int = 5,
+    promo_weight: float = 0.15,
 ) -> list[dict]:
     """
-    Retrieves top-K products most similar to the query embedding.
+    Retrieves top-K products most similar to the query embedding,
+    then applies Promotional Re-ranking to boost on-sale items.
 
-    Returns a list of dicts with product info + similarity score.
+    Args:
+        query_embedding:   (1, 512) user selfie embedding
+        product_embeddings: (N, 512) product index
+        metadata:          DataFrame with product info (must have on_sale_pct)
+        top_k:             Number of results to return
+        promo_weight:      How strongly sale discounts influence final ranking.
+                           0.0 = pure similarity, 1.0 = pure promo signal.
+
+    Returns:
+        Re-ranked list of dicts, each containing similarity_score, promo_signal,
+        final_score, on_sale_pct, rank_change, and product metadata.
     """
-    results = util.semantic_search(query_embedding, product_embeddings, top_k=top_k)
+    # Retrieve a wider candidate pool before re-ranking so boosted items
+    # can surface from just outside the raw top-K
+    candidate_k = max(top_k * 3, top_k + 20)
+    results = util.semantic_search(query_embedding, product_embeddings, top_k=candidate_k)
 
     recommendations = []
     for hit in results[0]:
@@ -47,10 +62,16 @@ def get_recommendations(
             "article": row.get("articleType", ""),
             "gender": row.get("gender", ""),
             "score": round(hit["score"], 4),
+            "on_sale": bool(row.get("on_sale", False)),
+            "on_sale_pct": int(row.get("on_sale_pct", 0)),
             "image_path": row["image_path"],
         })
 
-    return recommendations
+    # Apply promotional re-ranking over the full candidate pool
+    reranked = promotional_rerank(recommendations, promo_weight=promo_weight)
+
+    # Return only the final top_k
+    return reranked[:top_k]
 
 
 def display_results(
@@ -60,6 +81,7 @@ def display_results(
 ):
     """
     Displays the selfie alongside the top recommendation images.
+    On-sale items get a discount badge in the title.
     Optionally saves to a file.
     """
     n = len(recommendations)
@@ -78,7 +100,15 @@ def display_results(
         ax = fig.add_subplot(gs[i + 1])
         img = Image.open(rec["image_path"])
         ax.imshow(img)
-        label = f"#{i+1} {rec['name'][:20]}...\n{rec['color']} {rec['article']}\nScore: {rec['score']}"
+
+        sale_badge = f" 🏷️ {rec['on_sale_pct']}% OFF" if rec.get("on_sale_pct", 0) > 0 else ""
+        delta = rec.get("rank_change", 0)
+        delta_str = f" ▲{delta}" if delta > 0 else (f" ▼{abs(delta)}" if delta < 0 else "")
+        label = (
+            f"#{i+1}{delta_str} {rec['name'][:18]}...\n"
+            f"{rec['color']} {rec['article']}\n"
+            f"Score: {rec.get('final_score', rec['score']):.4f}{sale_badge}"
+        )
         ax.set_title(label, fontsize=7)
         ax.axis("off")
 
@@ -93,13 +123,18 @@ def display_results(
     plt.close()
 
 
-def run_inference(selfie_path: str, top_k: int = 5, model_dir: str = "models") -> list[dict]:
+def run_inference(
+    selfie_path: str,
+    top_k: int = 5,
+    model_dir: str = "models",
+    promo_weight: float = 0.15,
+) -> list[dict]:
     """
     Full inference pipeline:
       1. Load the pre-built product index
       2. Load CLIP model
       3. Encode the selfie (CLIP + Gemini vibe analysis)
-      4. Retrieve top-K similar products
+      4. Retrieve top-K candidates and apply Promotional Re-ranking
     """
     gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
     if not gemini_api_key:
@@ -117,8 +152,10 @@ def run_inference(selfie_path: str, top_k: int = 5, model_dir: str = "models") -
     print("Analyzing your photo...")
     query_emb = encode_user_selfie(model, selfie_path, gemini_api_key)
 
-    print(f"Finding top-{top_k} matches...")
-    recommendations = get_recommendations(query_emb, embeddings, metadata, top_k=top_k)
+    print(f"Finding top-{top_k} matches (with promo re-ranking, weight={promo_weight})...")
+    recommendations = get_recommendations(
+        query_emb, embeddings, metadata, top_k=top_k, promo_weight=promo_weight
+    )
 
     return recommendations
 
@@ -129,6 +166,12 @@ if __name__ == "__main__":
     parser.add_argument("--top-k", type=int, default=5, help="Number of recommendations.")
     parser.add_argument("--model-dir", default="models", help="Directory with saved index.")
     parser.add_argument("--output", default=None, help="Save result image to this path.")
+    parser.add_argument(
+        "--promo-weight",
+        type=float,
+        default=0.15,
+        help="Promotional re-ranking weight 0.0–1.0 (default: 0.15).",
+    )
     parser.add_argument(
         "--build-index",
         action="store_true",
@@ -144,14 +187,17 @@ if __name__ == "__main__":
         build_index(dataset_path=dataset_path, sample_size=args.sample, output_dir=args.model_dir)
 
     if args.selfie:
-        recs = run_inference(args.selfie, top_k=args.top_k, model_dir=args.model_dir)
+        recs = run_inference(
+            args.selfie,
+            top_k=args.top_k,
+            model_dir=args.model_dir,
+            promo_weight=args.promo_weight,
+        )
 
-        print("\n" + "=" * 50)
-        print("TOP RECOMMENDATIONS")
-        print("=" * 50)
-        for i, r in enumerate(recs, 1):
-            print(f"{i}. {r['name']}")
-            print(f"   {r['color']} {r['article']} | {r['usage']} | Score: {r['score']}")
+        print("\n" + "=" * 78)
+        print("RECOMMENDATIONS (after promotional re-ranking)")
+        print("=" * 78)
+        print(format_rerank_summary(recs))
 
         display_results(args.selfie, recs, output_path=args.output)
     elif not args.build_index:
