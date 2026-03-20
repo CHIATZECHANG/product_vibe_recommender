@@ -1,4 +1,4 @@
-# Product Vibe Recommender 🔍
+# On-sale Vibe Recommender 🔍
 
 A multimodal product recommendation system that analyzes a user's selfie to understand their personal style "vibe" and recommends matching products from a large product catalog.
 
