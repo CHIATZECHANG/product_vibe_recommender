@@ -80,14 +80,3 @@ pip install -r requirements.txt
 ```bash
 python inference.py --selfie path/to/your/photo.jpg --top-k 5
 ```
-
-### Run Demo App (Gradio)
-```bash
-python demo.py
-```
-This launches a local web UI where you can upload a selfie and see recommendations.
-
-### Run Evaluation
-```bash
-python evaluate.py
-```
