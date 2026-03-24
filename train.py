@@ -43,7 +43,7 @@ def build_index(
     print("Step 1/4: Loading dataset...")
     df = load_metadata(dataset_path)
     df = build_rich_descriptions(df)
-    df = get_sample(df, n=sample_size)
+    # df = get_sample(df, n=sample_size)
     print(f"Using {len(df)} products for index.")
 
     # 2. Load model
